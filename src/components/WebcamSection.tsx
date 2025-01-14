@@ -22,7 +22,7 @@ const WebcamSection = () => {
   let model: any = null;
   let webcam: any = null;
   let maxPredictions = 0;
-  const BRIGHTNESS_ADJUSTMENT = 50;
+  const BRIGHTNESS_ADJUSTMENT = 100; // Increased brightness adjustment
 
   const adjustBrightness = (canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d');
@@ -32,9 +32,10 @@ const WebcamSection = () => {
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = Math.min(255, data[i] + BRIGHTNESS_ADJUSTMENT);
-      data[i + 1] = Math.min(255, data[i + 1] + BRIGHTNESS_ADJUSTMENT);
-      data[i + 2] = Math.min(255, data[i + 2] + BRIGHTNESS_ADJUSTMENT);
+      // Apply a more aggressive brightness adjustment
+      data[i] = Math.min(255, data[i] * 1.5 + BRIGHTNESS_ADJUSTMENT);
+      data[i + 1] = Math.min(255, data[i + 1] * 1.5 + BRIGHTNESS_ADJUSTMENT);
+      data[i + 2] = Math.min(255, data[i + 2] * 1.5 + BRIGHTNESS_ADJUSTMENT);
     }
 
     ctx.putImageData(imageData, 0, 0);
@@ -47,14 +48,38 @@ const WebcamSection = () => {
       const modelURL = "/model/model.json";
       const metadataURL = "/model/metadata.json";
 
+      // Load the model
+      console.log("Loading model...");
       model = await window.tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
+      console.log("Model loaded successfully");
 
+      // Initialize webcam with specific constraints
       const flip = true;
       webcam = new window.tmImage.Webcam(400, 400, flip);
-      await webcam.setup();
-      await webcam.play();
+      
+      // Add specific constraints for better quality
+      const constraints = {
+        video: {
+          width: { ideal: 400 },
+          height: { ideal: 400 },
+          facingMode: 'environment',
+          advanced: [
+            { exposureMode: "manual" },
+            { exposureCompensation: 2.0 }, // Increase exposure
+            { brightness: { min: 100, ideal: 200 } }
+          ]
+        }
+      };
 
+      console.log("Setting up webcam with constraints:", constraints);
+      await webcam.setup(constraints);
+      console.log("Webcam setup complete");
+      
+      await webcam.play();
+      console.log("Webcam playing");
+
+      // Set up processing canvas
       if (!processingCanvasRef.current) {
         const canvas = document.createElement('canvas');
         canvas.width = 400;
@@ -62,33 +87,43 @@ const WebcamSection = () => {
         processingCanvasRef.current = canvas;
       }
 
+      // Append webcam canvas to container
       if (webcamContainerRef.current) {
+        webcamContainerRef.current.innerHTML = ''; // Clear previous content
         webcamContainerRef.current.appendChild(webcam.canvas);
       }
 
+      // Initialize label containers
       if (labelContainerRef.current) {
+        labelContainerRef.current.innerHTML = ''; // Clear previous content
         for (let i = 0; i < maxPredictions; i++) {
           labelContainerRef.current.appendChild(document.createElement("div"));
         }
       }
 
       setIsActive(true);
+      console.log("Starting animation loop");
       // Start the animation loop
       animationFrameRef.current = requestAnimationFrame(loop);
     } catch (error) {
+      console.error("Initialization error:", error);
       toast({
         title: "Error",
-        description: "Failed to initialize webcam or model. Please try again.",
+        description: `Failed to initialize camera: ${error.message}. Please ensure camera permissions are granted and try again.`,
         variant: "destructive",
       });
-      console.error("Error initializing:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
   const loop = async () => {
-    if (webcam && model && processingCanvasRef.current) {
+    if (!webcam || !model || !processingCanvasRef.current || !isActive) {
+      console.log("Loop stopped: missing requirements");
+      return;
+    }
+
+    try {
       webcam.update();
       
       const ctx = processingCanvasRef.current.getContext('2d');
@@ -98,15 +133,24 @@ const WebcamSection = () => {
       }
 
       await predict();
+      
       if (isActive) {
-        // Store the animation frame ID for cleanup
         animationFrameRef.current = requestAnimationFrame(loop);
       }
+    } catch (error) {
+      console.error("Loop error:", error);
+      toast({
+        title: "Processing Error",
+        description: "An error occurred while processing the video feed. Trying to recover...",
+        variant: "destructive",
+      });
     }
   };
 
   const predict = async () => {
-    if (model && labelContainerRef.current && processingCanvasRef.current) {
+    if (!model || !labelContainerRef.current || !processingCanvasRef.current) return;
+
+    try {
       const prediction = await model.predict(processingCanvasRef.current);
       for (let i = 0; i < maxPredictions; i++) {
         const classPrediction =
@@ -119,12 +163,14 @@ const WebcamSection = () => {
             classPrediction;
         }
       }
+    } catch (error) {
+      console.error("Prediction error:", error);
     }
   };
 
   useEffect(() => {
     return () => {
-      // Clean up animation frame and webcam on unmount
+      console.log("Cleaning up component");
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
