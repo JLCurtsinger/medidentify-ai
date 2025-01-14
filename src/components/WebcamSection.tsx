@@ -24,9 +24,9 @@ const WebcamSection = () => {
   const init = async () => {
     setIsLoading(true);
     try {
-      const URL = "https://github.com/JLCurtsinger/medicationIdentifier";
-      const modelURL = URL + "model.json";
-      const metadataURL = URL + "metadata.json";
+      // Updated to use local model files from the public directory
+      const modelURL = "/model/model.json";
+      const metadataURL = "/model/metadata.json";
 
       model = await window.tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
