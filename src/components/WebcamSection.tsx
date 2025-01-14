@@ -15,11 +15,31 @@ const WebcamSection = () => {
   const [isActive, setIsActive] = useState(false);
   const webcamContainerRef = useRef<HTMLDivElement>(null);
   const labelContainerRef = useRef<HTMLDivElement>(null);
+  const processingCanvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
 
   let model: any = null;
   let webcam: any = null;
   let maxPredictions = 0;
+  const BRIGHTNESS_ADJUSTMENT = 50; // Brightness adjustment value
+
+  const adjustBrightness = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // Adjust brightness for each pixel
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = Math.min(255, data[i] + BRIGHTNESS_ADJUSTMENT);     // Red
+      data[i + 1] = Math.min(255, data[i + 1] + BRIGHTNESS_ADJUSTMENT); // Green
+      data[i + 2] = Math.min(255, data[i + 2] + BRIGHTNESS_ADJUSTMENT); // Blue
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  };
 
   const init = async () => {
     setIsLoading(true);
@@ -35,6 +55,14 @@ const WebcamSection = () => {
       webcam = new window.tmImage.Webcam(400, 400, flip);
       await webcam.setup();
       await webcam.play();
+
+      // Create and set up processing canvas
+      if (!processingCanvasRef.current) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 400;
+        canvas.height = 400;
+        processingCanvasRef.current = canvas;
+      }
 
       if (webcamContainerRef.current) {
         webcamContainerRef.current.appendChild(webcam.canvas);
@@ -61,8 +89,16 @@ const WebcamSection = () => {
   };
 
   const loop = async () => {
-    if (webcam && model) {
+    if (webcam && model && processingCanvasRef.current) {
       webcam.update();
+      
+      // Copy webcam frame to processing canvas and adjust brightness
+      const ctx = processingCanvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(webcam.canvas, 0, 0);
+        adjustBrightness(processingCanvasRef.current);
+      }
+
       await predict();
       if (isActive) {
         window.requestAnimationFrame(loop);
@@ -71,8 +107,9 @@ const WebcamSection = () => {
   };
 
   const predict = async () => {
-    if (model && labelContainerRef.current) {
-      const prediction = await model.predict(webcam.canvas);
+    if (model && labelContainerRef.current && processingCanvasRef.current) {
+      // Use the brightness-adjusted canvas for prediction
+      const prediction = await model.predict(processingCanvasRef.current);
       for (let i = 0; i < maxPredictions; i++) {
         const classPrediction =
           prediction[i].className +
