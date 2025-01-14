@@ -22,7 +22,7 @@ const WebcamSection = () => {
   let model: any = null;
   let webcam: any = null;
   let maxPredictions = 0;
-  const BRIGHTNESS_ADJUSTMENT = 100; // Increased brightness adjustment
+  const BRIGHTNESS_ADJUSTMENT = 100;
 
   const adjustBrightness = (canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d');
@@ -32,7 +32,6 @@ const WebcamSection = () => {
     const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      // Apply a more aggressive brightness adjustment
       data[i] = Math.min(255, data[i] * 1.5 + BRIGHTNESS_ADJUSTMENT);
       data[i + 1] = Math.min(255, data[i + 1] * 1.5 + BRIGHTNESS_ADJUSTMENT);
       data[i + 2] = Math.min(255, data[i + 2] * 1.5 + BRIGHTNESS_ADJUSTMENT);
@@ -63,21 +62,40 @@ const WebcamSection = () => {
         video: {
           width: { ideal: 400 },
           height: { ideal: 400 },
-          facingMode: 'environment',
+          facingMode: { ideal: 'environment' },
           advanced: [
             { exposureMode: "manual" },
-            { exposureCompensation: 2.0 }, // Increase exposure
-            { brightness: { min: 100, ideal: 200 } }
+            { exposureCompensation: 2.0 },
+            { brightness: { min: 100, ideal: 200 } },
+            { contrast: { ideal: 128 } },
+            { saturation: { ideal: 128 } },
+            { sharpness: { ideal: 128 } }
           ]
         }
       };
 
       console.log("Setting up webcam with constraints:", constraints);
-      await webcam.setup(constraints);
-      console.log("Webcam setup complete");
+      try {
+        await webcam.setup(constraints);
+        console.log("Webcam setup complete");
+      } catch (setupError) {
+        console.log("Failed with advanced constraints, trying basic setup");
+        // Fallback to basic constraints if advanced fails
+        await webcam.setup({ 
+          video: { 
+            width: { ideal: 400 }, 
+            height: { ideal: 400 },
+            facingMode: 'environment'
+          } 
+        });
+      }
       
-      await webcam.play();
-      console.log("Webcam playing");
+      try {
+        await webcam.play();
+        console.log("Webcam playing");
+      } catch (playError) {
+        throw new Error(`Failed to start webcam: ${playError.message}`);
+      }
 
       // Set up processing canvas
       if (!processingCanvasRef.current) {
@@ -90,12 +108,19 @@ const WebcamSection = () => {
       // Append webcam canvas to container
       if (webcamContainerRef.current) {
         webcamContainerRef.current.innerHTML = ''; // Clear previous content
-        webcamContainerRef.current.appendChild(webcam.canvas);
+        if (webcam.canvas) {
+          webcamContainerRef.current.appendChild(webcam.canvas);
+          console.log("Webcam canvas appended to container");
+        } else {
+          throw new Error("Webcam canvas not initialized");
+        }
+      } else {
+        throw new Error("Webcam container not found");
       }
 
       // Initialize label containers
       if (labelContainerRef.current) {
-        labelContainerRef.current.innerHTML = ''; // Clear previous content
+        labelContainerRef.current.innerHTML = '';
         for (let i = 0; i < maxPredictions; i++) {
           labelContainerRef.current.appendChild(document.createElement("div"));
         }
@@ -108,10 +133,11 @@ const WebcamSection = () => {
     } catch (error) {
       console.error("Initialization error:", error);
       toast({
-        title: "Error",
+        title: "Camera Error",
         description: `Failed to initialize camera: ${error.message}. Please ensure camera permissions are granted and try again.`,
         variant: "destructive",
       });
+      setIsActive(false);
     } finally {
       setIsLoading(false);
     }
